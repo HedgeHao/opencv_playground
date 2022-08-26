@@ -1,5 +1,34 @@
+#include <fstream>
 
-static cv::Mat frame_to_mat(const rs2::frame &f)
+void generateChessboardCornerPoints3D(std::vector<cv::Point3f> &objPoints, int cols, int rows)
+{
+    objPoints.clear();
+    for (int i = 0; i < rows; i++)
+    {
+        for (int j = 0; j < cols; j++)
+        {
+            objPoints.push_back(cv::Point3f(j, i, 0));
+        }
+    }
+}
+
+void read_camera_params(std::string file, cv::Matx33f &K, cv::Vec<float, 5> &k)
+{
+    float K1, K2, K3, K4, K5, K6, K7, K8, K9;
+    float k1, k2, k3, k4, k5;
+
+    std::ifstream infile(file);
+    infile >> K1 >> K2 >> K3 >> K4 >> K5 >> K6 >> K7 >> K8 >> K9;
+    infile >> k1 >> k2 >> k3 >> k4 >> k5;
+
+    K = cv::Matx33f{K1, K2, K3, K4, K5, K6, K7, K8, K9};
+    k = cv::Vec<float, 5>{k1, k2, k3, k4, k5};
+
+    std::cout << "K = " << K << "\n"
+              << "k = " << k << std::endl;
+}
+
+cv::Mat frame_to_mat(const rs2::frame &f)
 {
     using namespace cv;
     using namespace rs2;
