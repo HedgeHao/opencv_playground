@@ -6,6 +6,7 @@ find_package(OpenCV REQUIRED)
 
 set(TARGET_2D calibrate2d)
 set(TARGET_2D_VALIDATE calibrate2d_validate)
+set(TARGET_TEST test)
 
 add_executable(${TARGET_2D} calibrate2d.cpp)
 target_link_libraries(${TARGET_2D} ${OpenCV_LIBS})

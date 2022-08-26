@@ -2,8 +2,8 @@ import sys
 
 import cv2 as cv
 import numpy as np
+np.set_printoptions(suppress=True)
 
-# Load previously saved data
 with np.load('params.npz') as X:
     mtx, dist = [X[i] for i in ('mtx', 'dist')]
 
@@ -34,9 +34,7 @@ try:
         ret, corners = cv.findChessboardCorners(gray, (15, 9), None)
         if ret:
             corners2 = cv.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
-            # Find the rotation and translation vectors.
             ret, rvecs, tvecs = cv.solvePnP(objp, corners2, mtx, dist)
-            # project 3D points to image plane
             imgpts, jac = cv.projectPoints(axis, rvecs, tvecs, mtx, dist)
             img = draw(img, corners2, imgpts)
 

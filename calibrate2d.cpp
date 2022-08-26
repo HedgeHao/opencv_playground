@@ -11,112 +11,87 @@
 
 int main(int argc, char **argv)
 {
-    int calibrate_num = 0;
-    std::vector<std::vector<cv::Point3f>> Q;
-    std::vector<std::vector<cv::Point2f>> q(CALIBRATE_NUM);
+    std::cout << cv::getVersionString() << std::endl;
 
-    cv::Size patternSize(16 - 1, 10 - 1);
+    std::vector<cv::String> fileNames;
+    cv::glob("../imgs/*.jpg", fileNames, false);
+    cv::Size patternSize(15, 9);
+    std::vector<std::vector<cv::Point2f>> q(fileNames.size());
+
+    std::vector<std::vector<cv::Point3f>> Q;
+    // 1. Generate checkerboard (world) coordinates Q. The board has 25 x 18
+    // fields with a size of 15x15mm
+
     int checkerBoard[2] = {16, 10};
     // Defining the world coordinates for 3D points
     std::vector<cv::Point3f> objp;
-    for (int i = 1; i < checkerBoard[1]; i++)
+    for (int i = 0; i < checkerBoard[1] - 1; i++)
     {
-        for (int j = 1; j < checkerBoard[0]; j++)
+        for (int j = 0; j < checkerBoard[0] - 1; j++)
         {
             objp.push_back(cv::Point3f(j, i, 0));
         }
     }
 
-    cv::namedWindow(PREVIEW_WINDOW, cv::WINDOW_AUTOSIZE);
-    cv::namedWindow(CALIBRATE_WINDOW, cv::WINDOW_AUTOSIZE);
-
-    cv::VideoCapture cap(std::stoi(argv[1]));
-    cv::Mat frame;
-    char c;
-    while (true)
+    std::vector<cv::Point2f> imgPoint;
+    // Detect feature points
+    cv::Mat img;
+    std::size_t i = 0;
+    for (auto const &f : fileNames)
     {
-        bool ret = cap.read(frame);
-        if (!ret)
-            continue;
+        std::cout << std::string(f) << std::endl;
 
-        cv::imshow(PREVIEW_WINDOW, frame);
-        c = cv::waitKey(1);
+        // 2. Read in the image an call cv::findChessboardCorners()
+        img = cv::imread(fileNames[i]);
+        cv::Mat gray;
 
-        if (c == 'c')
+        cv::cvtColor(img, gray, cv::COLOR_RGB2GRAY);
+
+        bool patternFound = cv::findChessboardCorners(gray, patternSize, q[i], cv::CALIB_CB_ADAPTIVE_THRESH + cv::CALIB_CB_NORMALIZE_IMAGE + cv::CALIB_CB_FAST_CHECK);
+
+        // 2. Use cv::cornerSubPix() to refine the found corner detections
+        if (patternFound)
         {
-            if (calibrate_num >= CALIBRATE_NUM)
-            {
-                printf("Calibrate number is 10\n");
-                continue;
-            }
-
-            cv::Mat gray;
-            cv::cvtColor(frame, gray, cv::COLOR_RGB2GRAY);
-            bool patternFound = cv::findChessboardCorners(gray, patternSize, q[calibrate_num], cv::CALIB_CB_ADAPTIVE_THRESH + cv::CALIB_CB_NORMALIZE_IMAGE + cv::CALIB_CB_FAST_CHECK);
-
-            if (patternFound)
-            {
-                cv::cornerSubPix(gray, q[calibrate_num], cv::Size(11, 11), cv::Size(-1, -1), cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER, 30, 0.1));
-                Q.push_back(objp);
-                cv::drawChessboardCorners(frame, patternSize, q[calibrate_num], patternFound);
-                cv::imshow(CALIBRATE_WINDOW, frame);
-
-                calibrate_num++;
-            }
+            cv::cornerSubPix(gray, q[i], cv::Size(11, 11), cv::Size(-1, -1), cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER, 30, 0.1));
+            Q.push_back(objp);
         }
-        else if (c == 27)
-        {
-            break;
-        }
+
+        // Display
+        cv::drawChessboardCorners(img, patternSize, q[i], patternFound);
+        cv::imshow("chessboard detection", img);
+        cv::waitKey(100);
+
+        i++;
     }
 
     cv::Matx33f K(cv::Matx33f::eye());  // intrinsic camera matrix
     cv::Vec<float, 5> k(0, 0, 0, 0, 0); // distortion coefficients
-    cv::Size frameSize(frame.cols, frame.rows);
-    std::cout << frame.cols << "," << frame.rows << std::endl;
 
-    if (calibrate_num == 10)
+    std::vector<cv::Mat> rvecs, tvecs;
+    std::vector<double> stdIntrinsics, stdExtrinsics, perViewErrors;
+    int flags = cv::CALIB_FIX_ASPECT_RATIO + cv::CALIB_FIX_K3 +
+                cv::CALIB_ZERO_TANGENT_DIST + cv::CALIB_FIX_PRINCIPAL_POINT;
+    std::cout << img.cols << "," << img.rows << std::endl;
+    cv::Size frameSize(1920, 1080);
+
+    std::cout << "Calibrating..." << std::endl;
+    // 4. Call "float error = cv::calibrateCamera()" with the input coordinates
+    // and output parameters as declared above...
+
+    double error = cv::calibrateCamera(Q, q, frameSize, K, k, rvecs, tvecs, flags);
+
+    std::vector<cv::Point2f> projectPoints;
+    double mean_error = 0.0;
+    for (int i = 0; i < Q.size(); i++)
     {
-        std::vector<cv::Mat> rvecs, tvecs;
-        std::vector<double> stdIntrinsics, stdExtrinsics, perViewErrors;
-        int flags = cv::CALIB_FIX_ASPECT_RATIO + cv::CALIB_FIX_K3 +
-                    cv::CALIB_ZERO_TANGENT_DIST + cv::CALIB_FIX_PRINCIPAL_POINT;
-
-        printf("Calibrating...\n");
-
-        float error = cv::calibrateCamera(Q, q, frameSize, K, k, rvecs, tvecs, flags);
-
-        std::cout << "Reprojection error = " << error << "\nK =\n"
-                  << K << "\nk=\n"
-                  << k << std::endl;
+        cv::projectPoints(Q[i], rvecs[i], tvecs[i], K, k, projectPoints);
+        mean_error += cv::norm(q[i], projectPoints, cv::NORM_L2) / projectPoints.size();
     }
 
-    cv::Mat mapX, mapY;
-    cv::initUndistortRectifyMap(K, k, cv::Matx33f::eye(), K, frameSize, CV_32FC1, mapX, mapY);
-    while (true)
-    {
-        bool ret = cap.read(frame);
-        if (!ret)
-            continue;
-
-        cv::Mat imgUndistorted;
-        cv::remap(frame, imgUndistorted, mapX, mapY, cv::INTER_LINEAR);
-
-        cv::resize(frame, frame, cv::Size(640, 360));
-        cv::resize(imgUndistorted, imgUndistorted, cv::Size(640, 360));
-
-        std::vector<cv::Mat> imgs;
-        cv::Mat result;
-        imgs.push_back(frame);
-        imgs.push_back(imgUndistorted);
-        cv::hconcat(imgs, result);
-
-        cv::imshow(PREVIEW_WINDOW, result);
-        if (cv::waitKey(1) == 27)
-            break;
-    }
-
-    cv::destroyAllWindows();
+    std::cout << "mean error = " << mean_error / objp.size() << "\n"
+              << "Reprojection error = " << error << "\nK =\n"
+              << K << "\nk=\n"
+              << k << std::endl;
 
     return 0;
 }
